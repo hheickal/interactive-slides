@@ -31,6 +31,22 @@ export const roomCode: string | null
 
 export const isLive = Boolean(supabase && roomCode)
 
+/**
+ * Open the room as soon as the deck loads.
+ *
+ * Students join before the first poll slide is ever shown, so the room row has
+ * to exist from the moment you open the deck — not from the moment you reach a
+ * question. `ignoreDuplicates` keeps this from wiping an active question if the
+ * deck is reloaded mid-lecture.
+ */
+export async function ensureRoom() {
+  if (!isLive) return
+  await supabase!.from('rooms').upsert(
+    { code: roomCode, updated_at: new Date().toISOString() },
+    { onConflict: 'code', ignoreDuplicates: true },
+  )
+}
+
 /** Tell the join page which question is on screen right now. */
 export async function activateQuestion(qid: string, question: string, options: PollOption[]) {
   if (!isLive) return

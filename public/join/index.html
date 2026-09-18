@@ -127,9 +127,11 @@ async function start(room) {
     .from('rooms').select('active_question').eq('code', room).maybeSingle()
 
   if (error) return renderCodeForm('Could not reach the poll server.')
-  if (!data) return renderCodeForm(`No open room named ${room}.`)
 
-  render(room, data.active_question)
+  // A missing room is the normal case, not an error: students join before the
+  // presenter opens the deck. Wait for it — the subscription below fires on the
+  // INSERT that opens it.
+  render(room, data?.active_question ?? null, !data)
 
   // One realtime connection per student. At 100 students that is ~101 total,
   // inside Supabase's 200-connection free tier. Past ~180 students, switch this
@@ -138,13 +140,17 @@ async function start(room) {
     .channel(`room:${room}`)
     .on('postgres_changes',
       { event: '*', schema: 'public', table: 'rooms', filter: `code=eq.${room}` },
-      payload => render(room, payload.new.active_question))
+      payload => render(room, payload.new.active_question, false))
     .subscribe()
 }
 
-function render(room, q) {
+function render(room, q, roomNotOpenYet) {
   if (!q) {
-    app.innerHTML = `<p class="muted">Joined room <strong>${room}</strong>. Waiting for the first question…</p>`
+    app.innerHTML = roomNotOpenYet
+      ? `<p class="muted">Waiting for room <strong>${escapeHtml(room)}</strong> to open…</p>
+         <p class="muted">This screen updates by itself once the lecture starts.</p>
+         <p><a href="./">Mistyped the code?</a></p>`
+      : `<p class="muted">Joined room <strong>${escapeHtml(room)}</strong>. Waiting for the first question…</p>`
     return
   }
 
