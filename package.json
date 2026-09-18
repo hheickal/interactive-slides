@@ -1,0 +1,20 @@
+{
+  "name": "interactive-slides",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "slidev --open",
+    "build": "slidev build --base /interactive-slides/",
+    "export": "slidev export"
+  },
+  "dependencies": {
+    "@slidev/cli": "^51.0.0",
+    "@slidev/theme-default": "^0.25.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "vue": "^3.4.0"
+  }
+}

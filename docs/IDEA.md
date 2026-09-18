@@ -88,24 +88,31 @@ repo (slides/*.md, components/*.vue)
 |---|---|
 | Framework | Slidev (Vue 3, Vite) |
 | Hosting | GitHub Pages |
-| Poll backend | Cloudflare Worker + KV (~150 lines) |
+| Poll backend | Supabase (hosted Postgres + auto REST + realtime) |
 | Solo persistence | `localStorage` — no accounts, no PII |
 | CI | GitHub Actions |
 
-**Short-poll, not websockets.** 500 concurrent sockets breaks every free tier
-(Supabase ~200, Firebase 100, Ably/Pusher 100–200). But the traffic is
-asymmetric: each learner POSTs **once per question**, and only the **single
-presenter** GETs every 2s. A 60-min class, 500 learners, 20 questions =
-10,000 writes + 1,800 reads ≈ **12k requests**, against Cloudflare's 100k/day
-free tier. No connection cap, and it degrades gracefully on bad venue WiFi.
+> **Amended 2026-09-18.** The audience cap dropped from 500 to **100**, and
+> that changes the backend answer. At 500 concurrent, realtime sockets break
+> every free tier (Supabase ~200, Firebase 100, Ably/Pusher 100–200), which is
+> what justified writing a custom Cloudflare Worker with short-polling. At 100,
+> a class needs ~101 connections and fits inside Supabase's free tier with
+> headroom — so the Worker buys nothing and costs ~150 lines of code to
+> maintain. **Supabase instead: zero backend code.**
+>
+> The short-poll design is still the right answer above ~180 students, and the
+> escape hatch is small: swap the students' subscription for a 2s fetch. Only
+> the presenter truly needs a live feed, and that is one connection at any class
+> size. Recorded in `SETUP.md` § Scaling.
 
-```
-POST /api/room                 → { room }
-POST /api/room/:room/response  { qid, answer } → 204
-GET  /api/room/:room/results   → { tallies }
-```
+Two tables — `rooms` (which question is on screen) and `responses` (the votes).
+Landing on a poll slide writes the question into the room row; every joined
+phone is subscribed to that row and switches instantly. Rooms are created on
+first use, with no registration step.
 
-Rooms expire via KV TTL. Anonymous by construction — no FERPA/GDPR surface.
+Anonymous by construction — no names, no emails, no FERPA/GDPR surface. The
+cost is that nothing is authenticated: fine for participation polls, not for
+grading. See `SETUP.md` § Trust model.
 
 ---
 

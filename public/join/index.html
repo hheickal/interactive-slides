@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Join the lecture poll</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --surface: #fcfcfb;
+    --text: #0b0b0b;
+    --muted: #898781;
+    --line: #e1e0d9;
+    --accent: #2a78d6;
+    --good: #0ca30c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #1a1a19;
+      --text: #ffffff;
+      --line: #2c2c2a;
+      --accent: #3987e5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px;
+    min-height: 100vh;
+    background: var(--surface);
+    color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 34rem; margin: 0 auto; }
+  h1 { font-size: 1.15rem; font-weight: 600; margin: 0 0 1.25rem; }
+  .muted { color: var(--muted); font-size: 0.9rem; }
+  .question { font-size: 1.35rem; font-weight: 600; margin: 0 0 1.25rem; }
+  button.choice {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 1rem 1.1rem;
+    margin-bottom: 0.6rem;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  button.choice:active { border-color: var(--accent); }
+  button.choice[disabled] { opacity: 0.45; cursor: default; }
+  button.choice.picked { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  form { display: flex; gap: 0.5rem; }
+  input {
+    flex: 1;
+    padding: 0.8rem 1rem;
+    font: inherit;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: inherit;
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  form button {
+    padding: 0.8rem 1.2rem;
+    font: inherit;
+    color: var(--surface);
+    background: var(--accent);
+    border: 0;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .sent { color: var(--good); font-weight: 600; }
+  .err { color: #d03b3b; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Lecture poll</h1>
+  <div id="app"><p class="muted">Loading…</p></div>
+</main>
+
+<script src="../config.js"></script>
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+
+const app = document.getElementById('app')
+const cfg = window.__POLL_CONFIG__ || {}
+
+if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
+  app.innerHTML = '<p class="err">Poll backend not configured yet.</p>'
+  throw new Error('missing config')
+}
+
+const supabase = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey)
+
+// Anonymous, per-browser id. Enforces one vote per question via a unique
+// constraint — not an identity claim, and not tied to any person.
+let clientId = localStorage.getItem('poll:client')
+if (!clientId) {
+  clientId = crypto.randomUUID()
+  localStorage.setItem('poll:client', clientId)
+}
+
+const room = new URLSearchParams(location.search).get('room')?.toUpperCase()
+if (!room) { renderCodeForm() } else { start(room) }
+
+function renderCodeForm(error) {
+  app.innerHTML = `
+    <p class="muted">Enter the code shown on the screen.</p>
+    <form id="f">
+      <input id="c" autocomplete="off" autocapitalize="characters" placeholder="CODE" required>
+      <button type="submit">Join</button>
+    </form>
+    ${error ? `<p class="err">${error}</p>` : ''}`
+  document.getElementById('f').onsubmit = (e) => {
+    e.preventDefault()
+    const code = document.getElementById('c').value.trim().toUpperCase()
+    if (code) location.search = `?room=${encodeURIComponent(code)}`
+  }
+}
+
+async function start(room) {
+  const { data, error } = await supabase
+    .from('rooms').select('active_question').eq('code', room).maybeSingle()
+
+  if (error) return renderCodeForm('Could not reach the poll server.')
+  if (!data) return renderCodeForm(`No open room named ${room}.`)
+
+  render(room, data.active_question)
+
+  // One realtime connection per student. At 100 students that is ~101 total,
+  // inside Supabase's 200-connection free tier. Past ~180 students, switch this
+  // to a 2s fetch loop — see docs/SETUP.md § Scaling.
+  supabase
+    .channel(`room:${room}`)
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'rooms', filter: `code=eq.${room}` },
+      payload => render(room, payload.new.active_question))
+    .subscribe()
+}
+
+function render(room, q) {
+  if (!q) {
+    app.innerHTML = `<p class="muted">Joined room <strong>${room}</strong>. Waiting for the first question…</p>`
+    return
+  }
+
+  const answered = localStorage.getItem(`poll:answered:${room}:${q.qid}`)
+
+  app.innerHTML = `
+    <p class="question">${escapeHtml(q.question)}</p>
+    <div id="opts"></div>
+    <p id="status" class="muted"></p>`
+
+  const opts = document.getElementById('opts')
+  const status = document.getElementById('status')
+
+  for (const text of q.options) {
+    const b = document.createElement('button')
+    b.className = 'choice' + (answered === text ? ' picked' : '')
+    b.textContent = text
+    b.disabled = Boolean(answered)
+    b.onclick = () => submit(room, q, text, opts, status)
+    opts.append(b)
+  }
+
+  if (answered) {
+    status.className = 'sent'
+    status.textContent = 'Answer sent. Waiting for the next question…'
+  }
+}
+
+async function submit(room, q, answer, opts, status) {
+  for (const b of opts.children) {
+    b.disabled = true
+    if (b.textContent === answer) b.classList.add('picked')
+  }
+  status.className = 'muted'
+  status.textContent = 'Sending…'
+
+  const { error } = await supabase.from('responses')
+    .insert({ room, qid: q.qid, answer, client_id: clientId })
+
+  // 23505 = unique violation, i.e. this browser already voted. Not an error
+  // the student needs to see.
+  if (error && error.code !== '23505') {
+    status.className = 'err'
+    status.textContent = 'Could not send — check your connection and try again.'
+    for (const b of opts.children) b.disabled = false
+    return
+  }
+
+  localStorage.setItem(`poll:answered:${room}:${q.qid}`, answer)
+  status.className = 'sent'
+  status.textContent = 'Answer sent. Waiting for the next question…'
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c]))
+}
+</script>
+</body>
+</html>
