@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
+import { useIsSlideActive } from '@slidev/client'
 import PollResults from './PollResults.vue'
 import {
   activateQuestion,
@@ -28,24 +29,40 @@ async function refresh() {
   tallies.value = await fetchTallies(props.id)
 }
 
-onMounted(async () => {
+/**
+ * Slidev mounts neighbouring slides ahead of time, so `onMounted` fires while
+ * you are still slides away — every poll in the deck would race to publish
+ * itself and the last one to mount would win. Publish on slide ENTER instead,
+ * which is the moment the question is actually on screen.
+ */
+const isActive = useIsSlideActive()
+
+watch(isActive, async (active) => {
   // Config arrives over the network, so mode is unknown for the first tick.
   await initPoll()
 
-  if (poll.isLive) {
-    // Presenting: publish this question so every joined phone switches to it.
-    await activateQuestion(props.id, props.question, props.options)
-    await refresh()
-    unsubscribe = subscribeTallies(props.id, refresh)
-  }
-  else {
+  if (!poll.isLive) {
     myAnswer.value = readSoloAnswer(props.id)
     if (myAnswer.value) {
       tallies.value = { [myAnswer.value]: 1 }
       reveal.value = true
     }
+    return
   }
-})
+
+  if (!active) {
+    // Leaving the slide: stop listening, but leave the question up on the
+    // phones — students answering slightly late should still get through.
+    unsubscribe()
+    unsubscribe = () => {}
+    return
+  }
+
+  reveal.value = false
+  await activateQuestion(props.id, props.question, props.options)
+  await refresh()
+  unsubscribe = subscribeTallies(props.id, refresh)
+}, { immediate: true })
 
 onBeforeUnmount(() => unsubscribe())
 
