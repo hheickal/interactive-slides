@@ -109,6 +109,18 @@ that is one connection no matter how big the class gets.
 
 ---
 
+## Resetting a room
+
+There is deliberately **no delete policy** — a cast vote is immutable, so
+nothing the browser can do will erase results. That also means old rooms
+accumulate. Clear one from the SQL editor when you want to reuse a code:
+
+```sql
+delete from rooms where code = 'CS101';   -- responses cascade
+```
+
+Easier habit: use a fresh code per lecture (`CS101-W3`) and never reset.
+
 ## Trust model
 
 No accounts, no names, no emails — nothing here identifies a student, which
@@ -118,3 +130,10 @@ The cost is that nothing is authenticated. Anyone with the room code can vote,
 and a determined student can vote twice from a second browser (the one-vote
 rule is enforced per-browser via `localStorage`, not per-person). Fine for
 participation and temperature checks. Not fine for grading.
+
+**The anon key is in a public repo,** which is how Supabase is designed to
+work — but it does mean anyone who finds this repo can insert rows. The blast
+radius is bounded: they can add junk votes and rooms, they cannot read anything
+private (there is nothing private), delete anything, or touch other projects.
+If it ever becomes a nuisance, rotate the key in the Supabase dashboard and
+update `public/config.js`.
