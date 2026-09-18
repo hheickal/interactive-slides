@@ -26,7 +26,8 @@ fill in `public/config.json`.
 | Students | `…/interactive-slides/join/` → enter `CS101` |
 | Anyone, self-paced | `…/interactive-slides/` |
 
-Advancing to a poll slide pushes that question to every joined phone.
+Students see the whole deck on their phones, mirroring whichever slide you are
+on, and answer polls in place. Tallies appear live on your screen.
 
 ## Layout
 
@@ -35,8 +36,9 @@ slides.md                 the deck — write lectures here
 components/Poll.vue       poll widget (live + solo modes)
 components/PollResults.vue  the tally bar chart
 components/JoinInfo.vue   the "go here, enter this code" slide
+components/RoomSync.vue   mirrors the presenter's slide to every follower
 lib/poll.ts               Supabase / localStorage plumbing
-public/join/index.html    what students open on their phones
+public/join/index.html    code entry; redirects into the deck in follow mode
 public/config.json        your Supabase URL + anon key
 supabase/schema.sql       run once in the Supabase SQL editor
 ```

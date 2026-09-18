@@ -10,8 +10,15 @@ create table if not exists rooms (
   code            text primary key,
   active_question jsonb,
   reveal          boolean     not null default false,
+  -- Which slide the presenter is on. Followers mirror these two.
+  current_slide   integer     not null default 1,
+  current_clicks  integer     not null default 0,
   updated_at      timestamptz not null default now()
 );
+
+-- Safe to re-run over an earlier version of this schema.
+alter table rooms add column if not exists current_slide  integer not null default 1;
+alter table rooms add column if not exists current_clicks integer not null default 0;
 
 create table if not exists responses (
   id         bigint generated always as identity primary key,

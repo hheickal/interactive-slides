@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Join the lecture poll</title>
+<title>Join the lecture</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -12,49 +12,30 @@
     --muted: #898781;
     --line: #e1e0d9;
     --accent: #2a78d6;
-    --good: #0ca30c;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --surface: #1a1a19;
-      --text: #ffffff;
-      --line: #2c2c2a;
-      --accent: #3987e5;
-    }
+    :root { --surface: #1a1a19; --text: #ffffff; --line: #2c2c2a; --accent: #3987e5; }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     padding: 24px 16px;
     min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: var(--surface);
     color: var(--text);
     font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-  main { max-width: 34rem; margin: 0 auto; }
-  h1 { font-size: 1.15rem; font-weight: 600; margin: 0 0 1.25rem; }
-  .muted { color: var(--muted); font-size: 0.9rem; }
-  .question { font-size: 1.35rem; font-weight: 600; margin: 0 0 1.25rem; }
-  button.choice {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 1rem 1.1rem;
-    margin-bottom: 0.6rem;
-    font: inherit;
-    color: inherit;
-    background: transparent;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    cursor: pointer;
-  }
-  button.choice:active { border-color: var(--accent); }
-  button.choice[disabled] { opacity: 0.45; cursor: default; }
-  button.choice.picked { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  main { width: 100%; max-width: 22rem; }
+  h1 { font-size: 1.15rem; font-weight: 600; margin: 0 0 0.35rem; }
+  p.muted { color: var(--muted); font-size: 0.9rem; margin: 0 0 1.25rem; }
   form { display: flex; gap: 0.5rem; }
   input {
     flex: 1;
-    padding: 0.8rem 1rem;
+    min-width: 0;
+    padding: 0.85rem 1rem;
     font: inherit;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -63,157 +44,46 @@
     border: 1px solid var(--line);
     border-radius: 10px;
   }
-  form button {
-    padding: 0.8rem 1.2rem;
+  button {
+    padding: 0.85rem 1.3rem;
     font: inherit;
-    color: var(--surface);
+    color: #fff;
     background: var(--accent);
     border: 0;
     border-radius: 10px;
     cursor: pointer;
   }
-  .sent { color: var(--good); font-weight: 600; }
-  .err { color: #d03b3b; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Lecture poll</h1>
-  <div id="app"><p class="muted">Loading…</p></div>
+  <h1>Join the lecture</h1>
+  <p class="muted">Enter the code shown on the screen. Your phone will follow
+    the slides and you can answer polls as they come up.</p>
+  <form id="f">
+    <input id="c" autocomplete="off" autocapitalize="characters" placeholder="CODE" required>
+    <button type="submit">Join</button>
+  </form>
 </main>
 
 <script type="module">
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
-
-const app = document.getElementById('app')
-
-// Same config file the deck reads, so the two can never drift apart.
-let cfg = {}
-try {
-  cfg = await (await fetch('../config.json')).json()
-}
-catch {
-  // handled below
+// This page is only a doorway: the deck itself is what students follow, so a
+// code here turns into a follow-mode deck URL. Everything else lives in the
+// deck, which means one poll implementation rather than two.
+function enter(code) {
+  location.replace(`../?room=${encodeURIComponent(code)}&follow=1`)
 }
 
-if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
-  app.innerHTML = '<p class="err">Poll backend not configured yet.</p>'
-  throw new Error('missing config')
+const preset = new URLSearchParams(location.search).get('room')
+if (preset) {
+  enter(preset.toUpperCase())
 }
-
-const supabase = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey)
-
-// Anonymous, per-browser id. Enforces one vote per question via a unique
-// constraint — not an identity claim, and not tied to any person.
-let clientId = localStorage.getItem('poll:client')
-if (!clientId) {
-  clientId = crypto.randomUUID()
-  localStorage.setItem('poll:client', clientId)
-}
-
-const room = new URLSearchParams(location.search).get('room')?.toUpperCase()
-if (!room) { renderCodeForm() } else { start(room) }
-
-function renderCodeForm(error) {
-  app.innerHTML = `
-    <p class="muted">Enter the code shown on the screen.</p>
-    <form id="f">
-      <input id="c" autocomplete="off" autocapitalize="characters" placeholder="CODE" required>
-      <button type="submit">Join</button>
-    </form>
-    ${error ? `<p class="err">${error}</p>` : ''}`
+else {
   document.getElementById('f').onsubmit = (e) => {
     e.preventDefault()
     const code = document.getElementById('c').value.trim().toUpperCase()
-    if (code) location.search = `?room=${encodeURIComponent(code)}`
+    if (code) enter(code)
   }
-}
-
-async function start(room) {
-  const { data, error } = await supabase
-    .from('rooms').select('active_question').eq('code', room).maybeSingle()
-
-  if (error) return renderCodeForm('Could not reach the poll server.')
-
-  // A missing room is the normal case, not an error: students join before the
-  // presenter opens the deck. Wait for it — the subscription below fires on the
-  // INSERT that opens it.
-  render(room, data?.active_question ?? null, !data)
-
-  // One realtime connection per student. At 100 students that is ~101 total,
-  // inside Supabase's 200-connection free tier. Past ~180 students, switch this
-  // to a 2s fetch loop — see docs/SETUP.md § Scaling.
-  supabase
-    .channel(`room:${room}`)
-    .on('postgres_changes',
-      { event: '*', schema: 'public', table: 'rooms', filter: `code=eq.${room}` },
-      payload => render(room, payload.new.active_question, false))
-    .subscribe()
-}
-
-function render(room, q, roomNotOpenYet) {
-  if (!q) {
-    app.innerHTML = roomNotOpenYet
-      ? `<p class="muted">Waiting for room <strong>${escapeHtml(room)}</strong> to open…</p>
-         <p class="muted">This screen updates by itself once the lecture starts.</p>
-         <p><a href="./">Mistyped the code?</a></p>`
-      : `<p class="muted">Joined room <strong>${escapeHtml(room)}</strong>. Waiting for the first question…</p>`
-    return
-  }
-
-  const answered = localStorage.getItem(`poll:answered:${room}:${q.qid}`)
-
-  app.innerHTML = `
-    <p class="question">${escapeHtml(q.question)}</p>
-    <div id="opts"></div>
-    <p id="status" class="muted"></p>`
-
-  const opts = document.getElementById('opts')
-  const status = document.getElementById('status')
-
-  for (const text of q.options) {
-    const b = document.createElement('button')
-    b.className = 'choice' + (answered === text ? ' picked' : '')
-    b.textContent = text
-    b.disabled = Boolean(answered)
-    b.onclick = () => submit(room, q, text, opts, status)
-    opts.append(b)
-  }
-
-  if (answered) {
-    status.className = 'sent'
-    status.textContent = 'Answer sent. Waiting for the next question…'
-  }
-}
-
-async function submit(room, q, answer, opts, status) {
-  for (const b of opts.children) {
-    b.disabled = true
-    if (b.textContent === answer) b.classList.add('picked')
-  }
-  status.className = 'muted'
-  status.textContent = 'Sending…'
-
-  const { error } = await supabase.from('responses')
-    .insert({ room, qid: q.qid, answer, client_id: clientId })
-
-  // 23505 = unique violation, i.e. this browser already voted. Not an error
-  // the student needs to see.
-  if (error && error.code !== '23505') {
-    status.className = 'err'
-    status.textContent = 'Could not send — check your connection and try again.'
-    for (const b of opts.children) b.disabled = false
-    return
-  }
-
-  localStorage.setItem(`poll:answered:${room}:${q.qid}`, answer)
-  status.className = 'sent'
-  status.textContent = 'Answer sent. Waiting for the next question…'
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c]))
 }
 </script>
 </body>

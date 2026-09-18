@@ -10,6 +10,7 @@ import {
   readSoloAnswer,
   setReveal,
   subscribeTallies,
+  submitAnswer,
   writeSoloAnswer,
   type PollOption,
 } from '../lib/poll'
@@ -23,6 +24,8 @@ const props = defineProps<{
 const tallies = ref<Record<string, number>>({})
 const reveal = ref(false)
 const myAnswer = ref<string | null>(null)
+const sending = ref(false)
+const failed = ref(false)
 let unsubscribe = () => {}
 
 async function refresh() {
@@ -41,34 +44,48 @@ watch(isActive, async (active) => {
   // Config arrives over the network, so mode is unknown for the first tick.
   await initPoll()
 
-  if (!poll.isLive) {
-    myAnswer.value = readSoloAnswer(props.id)
-    if (myAnswer.value) {
-      tallies.value = { [myAnswer.value]: 1 }
-      reveal.value = true
+  if (poll.isPresenter) {
+    if (!active) {
+      // Leaving the slide: stop listening, but leave the question up on the
+      // phones — students answering slightly late should still get through.
+      unsubscribe()
+      unsubscribe = () => {}
+      return
     }
+    reveal.value = false
+    await activateQuestion(props.id, props.question, props.options)
+    await refresh()
+    unsubscribe = subscribeTallies(props.id, refresh)
     return
   }
 
-  if (!active) {
-    // Leaving the slide: stop listening, but leave the question up on the
-    // phones — students answering slightly late should still get through.
-    unsubscribe()
-    unsubscribe = () => {}
-    return
+  // Follower and solo both answer in the deck; only the storage differs.
+  myAnswer.value = readSoloAnswer(props.id)
+  if (myAnswer.value && !poll.isFollower) {
+    tallies.value = { [myAnswer.value]: 1 }
+    reveal.value = true
   }
-
-  reveal.value = false
-  await activateQuestion(props.id, props.question, props.options)
-  await refresh()
-  unsubscribe = subscribeTallies(props.id, refresh)
 }, { immediate: true })
 
 onBeforeUnmount(() => unsubscribe())
 
-/** Solo mode only — in live mode the presenter's deck is not an answer surface. */
-function answer(option: PollOption) {
-  if (poll.isLive || myAnswer.value) return
+async function answer(option: PollOption) {
+  if (poll.isPresenter || myAnswer.value || sending.value) return
+
+  if (poll.isFollower) {
+    sending.value = true
+    failed.value = false
+    const ok = await submitAnswer(props.id, option.text)
+    sending.value = false
+    if (!ok) {
+      failed.value = true
+      return
+    }
+    myAnswer.value = option.text
+    writeSoloAnswer(props.id, option.text)
+    return
+  }
+
   myAnswer.value = option.text
   writeSoloAnswer(props.id, option.text)
   tallies.value = { [option.text]: 1 }
@@ -85,31 +102,51 @@ async function toggleReveal() {
   <div class="poll">
     <p class="question">{{ question }}</p>
 
-    <p v-if="!poll.ready" class="pending">Loading…</p>
+    <p v-if="!poll.ready" class="note">Loading…</p>
 
-    <!-- Solo: the deck itself is the answer surface. -->
-    <div v-else-if="!poll.isLive && !myAnswer" class="choices">
-      <button
-        v-for="o in options"
-        :key="o.text"
-        class="choice"
-        @click="answer(o)"
-      >
-        {{ o.text }}
+    <!-- Presenter: the deck is a scoreboard, not an answer surface. -->
+    <template v-else-if="poll.isPresenter">
+      <PollResults
+        :options="options"
+        :tallies="tallies"
+        :reveal="reveal"
+      />
+      <button class="reveal" @click="toggleReveal">
+        {{ reveal ? 'Hide answer' : 'Reveal answer' }}
       </button>
-    </div>
+    </template>
 
-    <!-- Live: students answer on their phones; the deck only shows the tally. -->
-    <template v-else>
+    <!-- Follower answered: wait for the presenter to move on. -->
+    <template v-else-if="poll.isFollower && myAnswer">
+      <p class="picked">{{ myAnswer }}</p>
+      <p class="note sent">Answer sent.</p>
+    </template>
+
+    <!-- Solo answered: instant feedback, since nobody is coming to reveal it. -->
+    <template v-else-if="myAnswer">
       <PollResults
         :options="options"
         :tallies="tallies"
         :reveal="reveal"
         :my-answer="myAnswer"
       />
-      <button v-if="poll.isLive" class="reveal" @click="toggleReveal">
-        {{ reveal ? 'Hide answer' : 'Reveal answer' }}
-      </button>
+    </template>
+
+    <!-- Unanswered, either mode. -->
+    <template v-else>
+      <div class="choices">
+        <button
+          v-for="o in options"
+          :key="o.text"
+          class="choice"
+          :disabled="sending"
+          @click="answer(o)"
+        >
+          {{ o.text }}
+        </button>
+      </div>
+      <p v-if="sending" class="note">Sending…</p>
+      <p v-if="failed" class="note err">Could not send — check your connection and tap again.</p>
     </template>
   </div>
 </template>
@@ -118,6 +155,7 @@ async function toggleReveal() {
 .poll {
   --text-muted: #898781;
   --series-1: #2a78d6;
+  --status-good: #0ca30c;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 @media (prefers-color-scheme: dark) {
@@ -126,7 +164,17 @@ async function toggleReveal() {
 :root[data-theme='dark'] .poll { --series-1: #3987e5; }
 
 .question { font-weight: 600; margin-bottom: 0.75rem; }
-.pending { color: var(--text-muted); font-size: 0.9em; }
+.note { color: var(--text-muted); font-size: 0.9em; }
+.note.sent { color: var(--status-good); }
+.note.err { color: #d03b3b; }
+
+.picked {
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--series-1);
+  border-radius: 6px;
+  color: var(--series-1);
+  font-weight: 600;
+}
 
 .choices { display: flex; flex-direction: column; gap: 0.5rem; }
 
@@ -140,7 +188,8 @@ async function toggleReveal() {
   cursor: pointer;
   transition: border-color 120ms, color 120ms;
 }
-.choice:hover { border-color: var(--series-1); color: var(--series-1); }
+.choice:hover:not([disabled]) { border-color: var(--series-1); color: var(--series-1); }
+.choice[disabled] { opacity: 0.5; cursor: default; }
 
 .reveal {
   margin-top: 0.9rem;

@@ -6,36 +6,66 @@ export interface PollOption {
   correct?: boolean
 }
 
-/**
- * The deck runs in one of two modes, decided by the URL:
- *
- *   ?room=CS101   live — you are presenting; students answer at /join/
- *   (no param)    solo — a learner working alone; answers stay in localStorage
- */
-export const roomCode: string | null
-  = typeof window !== 'undefined'
-    ? new URLSearchParams(window.location.search).get('room')
-    : null
+export interface RoomRow {
+  code: string
+  active_question: { qid: string, question: string, options: string[] } | null
+  reveal: boolean
+  current_slide: number
+  current_clicks: number
+}
 
-/** Reactive because config arrives over the network, after first render. */
+const params = typeof window !== 'undefined'
+  ? new URLSearchParams(window.location.search)
+  : new URLSearchParams()
+
+/**
+ * The deck runs in one of three modes, decided by the URL:
+ *
+ *   ?room=CS101            presenter — you drive; the room mirrors your slide
+ *   ?room=CS101&follow=1   follower  — a student's phone; follows your slide
+ *                                      and answers polls inline
+ *   (no room)              solo      — self-paced; answers stay in localStorage
+ */
+export const roomCode = params.get('room')
+const wantsFollow = params.get('follow') === '1'
+
 export const poll = reactive({
   /** Config has been loaded (or failed) — safe to render. */
   ready: false,
-  /** Backend configured AND a room code present. */
-  isLive: false,
   /** Backend configured at all — distinguishes "no backend" from "no room". */
   configured: false,
+  /** In a room, driving it. */
+  isPresenter: false,
+  /** In a room, mirroring it. */
+  isFollower: false,
+  /** In a room at all. */
+  isLive: false,
 })
 
 let client: SupabaseClient | null = null
 let initPromise: Promise<void> | null = null
 
+/** Anonymous per-browser id — enforces one vote per question, not an identity. */
+export function clientId(): string {
+  try {
+    let id = localStorage.getItem('poll:client')
+    if (!id) {
+      id = crypto.randomUUID()
+      localStorage.setItem('poll:client', id)
+    }
+    return id
+  }
+  catch {
+    return 'anon-' + Math.random().toString(36).slice(2)
+  }
+}
+
 /**
  * Load config and open the Supabase client.
  *
- * Config is fetched rather than compiled in so that the deck and the plain-HTML
- * join page read the same file. `BASE_URL` resolves to `/` in dev and to the
- * Pages subpath in production, so this works in both without a second config.
+ * Config is fetched rather than compiled in so that the deck and the join page
+ * read the same file. `BASE_URL` resolves to `/` in dev and to the Pages
+ * subpath in production, so this works in both without a second config.
  */
 export function initPoll(): Promise<void> {
   if (initPromise) return initPromise
@@ -52,6 +82,8 @@ export function initPoll(): Promise<void> {
     }
     poll.configured = Boolean(client)
     poll.isLive = Boolean(client && roomCode)
+    poll.isFollower = poll.isLive && wantsFollow
+    poll.isPresenter = poll.isLive && !wantsFollow
     poll.ready = true
   })()
 
@@ -68,17 +100,28 @@ export function initPoll(): Promise<void> {
  */
 export async function ensureRoom() {
   await initPoll()
-  if (!poll.isLive) return
+  if (!poll.isPresenter) return
   await client!.from('rooms').upsert(
     { code: roomCode, updated_at: new Date().toISOString() },
     { onConflict: 'code', ignoreDuplicates: true },
   )
 }
 
-/** Tell the join page which question is on screen right now. */
+/** Presenter: mirror the slide you are on into the room. */
+export async function publishSlide(slideNo: number, clicks: number) {
+  if (!poll.isPresenter) return
+  await client!.from('rooms').upsert({
+    code: roomCode,
+    current_slide: slideNo,
+    current_clicks: clicks,
+    updated_at: new Date().toISOString(),
+  })
+}
+
+/** Tell followers which question is on screen right now. */
 export async function activateQuestion(qid: string, question: string, options: PollOption[]) {
   await initPoll()
-  if (!poll.isLive) return
+  if (!poll.isPresenter) return
   await client!.from('rooms').upsert({
     code: roomCode,
     active_question: { qid, question, options: options.map(o => o.text) },
@@ -88,8 +131,42 @@ export async function activateQuestion(qid: string, question: string, options: P
 }
 
 export async function setReveal(reveal: boolean) {
-  if (!poll.isLive) return
+  if (!poll.isPresenter) return
   await client!.from('rooms').update({ reveal }).eq('code', roomCode)
+}
+
+export async function fetchRoom(): Promise<RoomRow | null> {
+  if (!poll.isLive) return null
+  const { data } = await client!
+    .from('rooms')
+    .select('code, active_question, reveal, current_slide, current_clicks')
+    .eq('code', roomCode)
+    .maybeSingle()
+  return (data as RoomRow) ?? null
+}
+
+/** Follower: watch the room row for slide moves and reveals. */
+export function subscribeRoom(onChange: (row: RoomRow) => void) {
+  if (!poll.isLive) return () => {}
+  const channel = client!
+    .channel(`room:${roomCode}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'rooms', filter: `code=eq.${roomCode}` },
+      payload => onChange(payload.new as RoomRow),
+    )
+    .subscribe()
+  return () => { client!.removeChannel(channel) }
+}
+
+/** Follower: cast a vote. Returns false only on a real failure. */
+export async function submitAnswer(qid: string, answer: string): Promise<boolean> {
+  if (!poll.isLive) return false
+  const { error } = await client!
+    .from('responses')
+    .insert({ room: roomCode, qid, answer, client_id: clientId() })
+  // 23505 = this browser already voted. Not something the student needs to see.
+  return !error || error.code === '23505'
 }
 
 export async function fetchTallies(qid: string): Promise<Record<string, number>> {
@@ -107,14 +184,14 @@ export async function fetchTallies(qid: string): Promise<Record<string, number>>
 }
 
 /**
- * Live tally feed for one question.
+ * Live tally feed for one question — presenter only.
  *
- * At 100 students this is ~101 concurrent connections, inside Supabase's
- * 200-connection free tier. See docs/SETUP.md § Scaling for what to do above
- * roughly 180.
+ * Followers already hold one room subscription each, so a class of 100 sits at
+ * ~101 concurrent connections, inside Supabase's 200-connection free tier. See
+ * docs/SETUP.md § Scaling for what to do above roughly 180.
  */
 export function subscribeTallies(qid: string, onChange: () => void) {
-  if (!poll.isLive) return () => {}
+  if (!poll.isPresenter) return () => {}
   const channel = client!
     .channel(`tally:${roomCode}:${qid}`)
     .on(

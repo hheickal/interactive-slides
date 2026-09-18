@@ -21,7 +21,9 @@ npm ci
 
 1. Sign up at [supabase.com](https://supabase.com) and create a project (free tier).
 2. Open **SQL Editor → New query**, paste all of
-   [`supabase/schema.sql`](../supabase/schema.sql), run it.
+   [`supabase/schema.sql`](../supabase/schema.sql), run it. It is safe to re-run
+   after pulling changes — slide-sync columns are added with
+   `add column if not exists`.
 3. Open **Project Settings → API** and copy the **Project URL** and the
    **`anon` `public`** key.
 
@@ -54,18 +56,30 @@ workflow publishes to
 
 ## Running a lecture
 
-| Who | URL |
-|---|---|
-| You, presenting | `…/interactive-slides/?room=CS101` |
-| Students | `…/interactive-slides/join/` then enter `CS101` |
-| Anyone, self-paced | `…/interactive-slides/` (no `?room=`) |
+| Who | URL | Sees |
+|---|---|---|
+| You, presenting | `…/interactive-slides/?room=CS101` | the deck, plus live tallies |
+| Students | `…/interactive-slides/join/` then enter `CS101` | the whole deck, following your slide |
+| Anyone, self-paced | `…/interactive-slides/` (no `?room=`) | the deck, answering at their own pace |
+
+Students get the **entire deck**, not just the questions — their phone mirrors
+whichever slide you are on, poll or not, and polls become tappable in place.
+The join page is only a doorway: it turns a code into
+`…/?room=CS101&follow=1`, which is the deck in follow mode.
+
+A follower can still swipe around; the next slide you move to snaps them back,
+and a small "following the presenter" badge says so.
+
+**On a phone, slides render small.** A 16:9 slide inside a portrait screen is a
+narrow band. Tell students to turn the phone sideways, and keep body text on
+lecture slides large.
 
 Pick any room code you like — there is no registration step. The room opens the
 moment you load the deck with `?room=`, so students can join before you reach
 the first question. Use a fresh code per lecture so tallies don't mix.
 
-Advancing to a poll slide pushes that question to every joined phone
-automatically. **Reveal answer** marks the correct option on your screen.
+Every move you make is mirrored to followers, including click-throughs within a
+slide. **Reveal answer** marks the correct option on your screen.
 
 ### Solo mode
 
@@ -100,12 +114,12 @@ that is fine. Do not use this for anything graded.
 
 ## Scaling
 
-Current design: every student holds one realtime connection, so a class of 100
-uses ~101 of Supabase's **200-connection** free-tier limit.
+Current design: every student holds one realtime connection to the room, so a
+class of 100 uses ~101 of Supabase's **200-connection** free-tier limit.
 
 Past roughly 180 students, that ceiling binds. The fix is not a bigger plan —
-replace the students' realtime subscription in
-[`public/join/index.html`](../public/join/index.html) with a 2-second fetch of
+replace the follower subscription in
+[`components/RoomSync.vue`](../components/RoomSync.vue) with a 2-second fetch of
 the room row. Student traffic is tiny either way: one POST per question each,
 plus a small polled read. Only the presenter genuinely needs a live feed, and
 that is one connection no matter how big the class gets.
