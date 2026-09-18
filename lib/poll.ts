@@ -1,22 +1,10 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { reactive } from 'vue'
 
 export interface PollOption {
   text: string
   correct?: boolean
 }
-
-declare global {
-  interface Window {
-    __POLL_CONFIG__?: { supabaseUrl?: string, supabaseAnonKey?: string }
-  }
-}
-
-const cfg = (typeof window !== 'undefined' && window.__POLL_CONFIG__) || {}
-
-export const supabase: SupabaseClient | null
-  = cfg.supabaseUrl && cfg.supabaseAnonKey
-    ? createClient(cfg.supabaseUrl, cfg.supabaseAnonKey)
-    : null
 
 /**
  * The deck runs in one of two modes, decided by the URL:
@@ -29,7 +17,46 @@ export const roomCode: string | null
     ? new URLSearchParams(window.location.search).get('room')
     : null
 
-export const isLive = Boolean(supabase && roomCode)
+/** Reactive because config arrives over the network, after first render. */
+export const poll = reactive({
+  /** Config has been loaded (or failed) — safe to render. */
+  ready: false,
+  /** Backend configured AND a room code present. */
+  isLive: false,
+  /** Backend configured at all — distinguishes "no backend" from "no room". */
+  configured: false,
+})
+
+let client: SupabaseClient | null = null
+let initPromise: Promise<void> | null = null
+
+/**
+ * Load config and open the Supabase client.
+ *
+ * Config is fetched rather than compiled in so that the deck and the plain-HTML
+ * join page read the same file. `BASE_URL` resolves to `/` in dev and to the
+ * Pages subpath in production, so this works in both without a second config.
+ */
+export function initPoll(): Promise<void> {
+  if (initPromise) return initPromise
+
+  initPromise = (async () => {
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}config.json`)
+      const cfg = await res.json()
+      if (cfg.supabaseUrl && cfg.supabaseAnonKey)
+        client = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey)
+    }
+    catch {
+      // No config, or it is malformed. Solo mode still works fully.
+    }
+    poll.configured = Boolean(client)
+    poll.isLive = Boolean(client && roomCode)
+    poll.ready = true
+  })()
+
+  return initPromise
+}
 
 /**
  * Open the room as soon as the deck loads.
@@ -40,8 +67,9 @@ export const isLive = Boolean(supabase && roomCode)
  * deck is reloaded mid-lecture.
  */
 export async function ensureRoom() {
-  if (!isLive) return
-  await supabase!.from('rooms').upsert(
+  await initPoll()
+  if (!poll.isLive) return
+  await client!.from('rooms').upsert(
     { code: roomCode, updated_at: new Date().toISOString() },
     { onConflict: 'code', ignoreDuplicates: true },
   )
@@ -49,8 +77,9 @@ export async function ensureRoom() {
 
 /** Tell the join page which question is on screen right now. */
 export async function activateQuestion(qid: string, question: string, options: PollOption[]) {
-  if (!isLive) return
-  await supabase!.from('rooms').upsert({
+  await initPoll()
+  if (!poll.isLive) return
+  await client!.from('rooms').upsert({
     code: roomCode,
     active_question: { qid, question, options: options.map(o => o.text) },
     reveal: false,
@@ -59,13 +88,13 @@ export async function activateQuestion(qid: string, question: string, options: P
 }
 
 export async function setReveal(reveal: boolean) {
-  if (!isLive) return
-  await supabase!.from('rooms').update({ reveal }).eq('code', roomCode)
+  if (!poll.isLive) return
+  await client!.from('rooms').update({ reveal }).eq('code', roomCode)
 }
 
 export async function fetchTallies(qid: string): Promise<Record<string, number>> {
-  if (!isLive) return {}
-  const { data } = await supabase!
+  if (!poll.isLive) return {}
+  const { data } = await client!
     .from('responses')
     .select('answer')
     .eq('room', roomCode)
@@ -80,13 +109,13 @@ export async function fetchTallies(qid: string): Promise<Record<string, number>>
 /**
  * Live tally feed for one question.
  *
- * Only the presenter ever opens a realtime connection — students POST once and
- * close. So a 100-student lecture uses exactly ONE concurrent connection, which
- * is why the free tier is nowhere near a constraint.
+ * At 100 students this is ~101 concurrent connections, inside Supabase's
+ * 200-connection free tier. See docs/SETUP.md § Scaling for what to do above
+ * roughly 180.
  */
 export function subscribeTallies(qid: string, onChange: () => void) {
-  if (!isLive) return () => {}
-  const channel = supabase!
+  if (!poll.isLive) return () => {}
+  const channel = client!
     .channel(`tally:${roomCode}:${qid}`)
     .on(
       'postgres_changes',
@@ -96,7 +125,7 @@ export function subscribeTallies(qid: string, onChange: () => void) {
       },
     )
     .subscribe()
-  return () => { supabase!.removeChannel(channel) }
+  return () => { client!.removeChannel(channel) }
 }
 
 /** Solo mode: the learner's own answers, per browser. */

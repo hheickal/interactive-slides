@@ -27,14 +27,17 @@ npm ci
 
 ## 2. Point the deck at it
 
-Edit [`public/config.js`](../public/config.js):
+Edit [`public/config.json`](../public/config.json):
 
-```js
-window.__POLL_CONFIG__ = {
-  supabaseUrl: 'https://xxxxxxxx.supabase.co',
-  supabaseAnonKey: 'eyJhbGci...',
+```json
+{
+  "supabaseUrl": "https://xxxxxxxx.supabase.co",
+  "supabaseAnonKey": "eyJhbGci..."
 }
 ```
+
+Both the deck and the join page fetch this one file at runtime, so there is no
+second place to keep in sync.
 
 The `anon` key is **public by design** — Supabase ships it in every browser
 bundle, and committing it to a public repo is normal. Row Level Security is the
@@ -57,9 +60,9 @@ workflow publishes to
 | Students | `…/interactive-slides/join/` then enter `CS101` |
 | Anyone, self-paced | `…/interactive-slides/` (no `?room=`) |
 
-Pick any room code you like — there is no registration step, the room row is
-created the first time you land on a poll slide. Use a fresh code per lecture
-so tallies don't mix.
+Pick any room code you like — there is no registration step. The room opens the
+moment you load the deck with `?room=`, so students can join before you reach
+the first question. Use a fresh code per lecture so tallies don't mix.
 
 Advancing to a poll slide pushes that question to every joined phone
 automatically. **Reveal answer** marks the correct option on your screen.
@@ -136,4 +139,4 @@ work — but it does mean anyone who finds this repo can insert rows. The blast
 radius is bounded: they can add junk votes and rooms, they cannot read anything
 private (there is nothing private), delete anything, or touch other projects.
 If it ever becomes a nuisance, rotate the key in the Supabase dashboard and
-update `public/config.js`.
+update `public/config.json`.

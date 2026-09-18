@@ -82,12 +82,19 @@
   <div id="app"><p class="muted">Loading…</p></div>
 </main>
 
-<script src="../config.js"></script>
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
 
 const app = document.getElementById('app')
-const cfg = window.__POLL_CONFIG__ || {}
+
+// Same config file the deck reads, so the two can never drift apart.
+let cfg = {}
+try {
+  cfg = await (await fetch('../config.json')).json()
+}
+catch {
+  // handled below
+}
 
 if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
   app.innerHTML = '<p class="err">Poll backend not configured yet.</p>'

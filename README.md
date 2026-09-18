@@ -16,7 +16,7 @@ npm run dev
 ```
 
 Then follow [`docs/SETUP.md`](docs/SETUP.md) to create the Supabase project and
-fill in `public/config.js`.
+fill in `public/config.json`.
 
 ## Running a lecture
 
@@ -37,7 +37,7 @@ components/PollResults.vue  the tally bar chart
 components/JoinInfo.vue   the "go here, enter this code" slide
 lib/poll.ts               Supabase / localStorage plumbing
 public/join/index.html    what students open on their phones
-public/config.js          your Supabase URL + anon key
+public/config.json        your Supabase URL + anon key
 supabase/schema.sql       run once in the Supabase SQL editor
 ```
 

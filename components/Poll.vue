@@ -4,7 +4,8 @@ import PollResults from './PollResults.vue'
 import {
   activateQuestion,
   fetchTallies,
-  isLive,
+  initPoll,
+  poll,
   readSoloAnswer,
   setReveal,
   subscribeTallies,
@@ -28,7 +29,10 @@ async function refresh() {
 }
 
 onMounted(async () => {
-  if (isLive) {
+  // Config arrives over the network, so mode is unknown for the first tick.
+  await initPoll()
+
+  if (poll.isLive) {
     // Presenting: publish this question so every joined phone switches to it.
     await activateQuestion(props.id, props.question, props.options)
     await refresh()
@@ -47,7 +51,7 @@ onBeforeUnmount(() => unsubscribe())
 
 /** Solo mode only — in live mode the presenter's deck is not an answer surface. */
 function answer(option: PollOption) {
-  if (isLive || myAnswer.value) return
+  if (poll.isLive || myAnswer.value) return
   myAnswer.value = option.text
   writeSoloAnswer(props.id, option.text)
   tallies.value = { [option.text]: 1 }
@@ -64,8 +68,10 @@ async function toggleReveal() {
   <div class="poll">
     <p class="question">{{ question }}</p>
 
+    <p v-if="!poll.ready" class="pending">Loading…</p>
+
     <!-- Solo: the deck itself is the answer surface. -->
-    <div v-if="!isLive && !myAnswer" class="choices">
+    <div v-else-if="!poll.isLive && !myAnswer" class="choices">
       <button
         v-for="o in options"
         :key="o.text"
@@ -84,7 +90,7 @@ async function toggleReveal() {
         :reveal="reveal"
         :my-answer="myAnswer"
       />
-      <button v-if="isLive" class="reveal" @click="toggleReveal">
+      <button v-if="poll.isLive" class="reveal" @click="toggleReveal">
         {{ reveal ? 'Hide answer' : 'Reveal answer' }}
       </button>
     </template>
@@ -103,6 +109,7 @@ async function toggleReveal() {
 :root[data-theme='dark'] .poll { --series-1: #3987e5; }
 
 .question { font-weight: 600; margin-bottom: 0.75rem; }
+.pending { color: var(--text-muted); font-size: 0.9em; }
 
 .choices { display: flex; flex-direction: column; gap: 0.5rem; }
 

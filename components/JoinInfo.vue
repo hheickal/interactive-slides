@@ -1,28 +1,31 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { isLive, roomCode, supabase } from '../lib/poll'
+import { computed, onMounted } from 'vue'
+import { initPoll, poll, roomCode } from '../lib/poll'
+
+onMounted(initPoll)
 
 const joinUrl = computed(() => {
   if (typeof window === 'undefined') return ''
-  // The deck is served at <base>/, the join page at <base>/join/.
-  const base = window.location.pathname.replace(/\/(?:presenter\/)?$/, '')
-  return `${window.location.origin}${base}/join/`
+  return `${window.location.origin}${import.meta.env.BASE_URL}join/`
 })
 </script>
 
 <template>
   <div class="join">
-    <template v-if="isLive">
+    <template v-if="poll.isLive">
       <p class="lead">Go to</p>
       <p class="url">{{ joinUrl }}</p>
       <p class="lead">and enter code</p>
       <p class="code">{{ roomCode }}</p>
     </template>
 
-    <p v-else-if="!supabase" class="warn">
+    <p v-else-if="!poll.ready" class="warn">Loading…</p>
+
+    <p v-else-if="!poll.configured" class="warn">
       No poll backend configured — running in solo mode.
-      Fill in <code>public/config.js</code> to enable live polls.
+      Fill in <code>public/config.json</code> to enable live polls.
     </p>
+
     <p v-else class="warn">
       Solo mode. Add <code>?room=YOURCODE</code> to the URL to present live.
     </p>
