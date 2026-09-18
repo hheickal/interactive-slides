@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy notice — lecture slides</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --surface: #fcfcfb;
+    --text: #0b0b0b;
+    --muted: #52514e;
+    --line: #e1e0d9;
+    --accent: #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --surface: #1a1a19; --text: #fff; --muted: #c3c2b7; --line: #2c2c2a; --accent: #3987e5; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0 16px;
+    background: var(--surface);
+    color: var(--text);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 42rem; margin: 0 auto; padding-block: 48px 72px; }
+  h1 { font-size: 1.6rem; line-height: 1.25; margin: 0 0 0.4rem; }
+  h2 { font-size: 1.1rem; margin: 2.2rem 0 0.6rem; }
+  .sub { color: var(--muted); margin: 0 0 2rem; }
+  p, li { color: var(--text); }
+  ul { padding-left: 1.2rem; }
+  li { margin-bottom: 0.4rem; }
+  .box {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 0.9rem 1.1rem;
+    margin: 1.5rem 0;
+  }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.95rem; }
+  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  footer { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+  code { font-size: 0.9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Privacy notice</h1>
+  <p class="sub">For students taking part in interactive lecture slides.</p>
+
+  <p>These slides let you answer questions during a lecture from your own
+    device. To do that, they record who answered what. This page explains
+    exactly what is kept and who can see it.</p>
+
+  <h2>What is collected</h2>
+  <table>
+    <tr><th>Data</th><th>Why</th></tr>
+    <tr><td>Your email address and name, from your Google account</td><td>To check you are on the course roster and to attribute your answers</td></tr>
+    <tr><td>Your answers, with the question and a timestamp</td><td>Live results during the lecture, and participation or grades afterwards</td></tr>
+    <tr><td>Whether each answer was correct</td><td>Grading and your own progress</td></tr>
+  </table>
+
+  <p>Nothing else is requested from your Google account. No password is ever
+    seen or stored — Google handles sign-in and only confirms your identity.</p>
+
+  <div class="box">
+    <strong>Polls marked “anonymous”</strong> are stored with no link to you at
+    all. The system records that you voted, so you cannot vote twice, but not
+    what you chose — and those two facts are kept apart in a way that cannot be
+    rejoined, including by your instructor. Use those polls to answer honestly.
+  </div>
+
+  <h2>Who can see it</h2>
+  <ul>
+    <li><strong>You</strong> — your own answers and your own score.</li>
+    <li><strong>Your instructor</strong> — all answers for their own course.</li>
+    <li><strong>Nobody</strong> — your identity on an anonymous poll.</li>
+  </ul>
+  <p>Other students cannot see your answers. Access is enforced by the database
+    itself, not by the website.</p>
+
+  <h2>Where it is stored</h2>
+  <p>In a Supabase project controlled by your instructor. It is not sold, not
+    shared with advertisers, and not used for anything beyond the course.</p>
+
+  <h2>How long it is kept</h2>
+  <p>Your instructor sets a retention period for the course and deletes the
+    data at the end of it. Ask them if you need the specifics for your course.</p>
+
+  <h2>Your choices</h2>
+  <ul>
+    <li>Ask your instructor for a copy of what is held about you.</li>
+    <li>Ask for it to be deleted. Anonymous answers cannot be deleted
+      individually, because there is no record of which ones are yours.</li>
+    <li>Not take part. Ask your instructor how participation is handled if you
+      would rather not sign in.</li>
+  </ul>
+
+  <h2>Questions</h2>
+  <p>Contact your course instructor, or your institution's data protection
+    officer.</p>
+
+  <footer>
+    This page describes a teaching tool run by an individual instructor, not a
+    commercial service.
+  </footer>
+</main>
+</body>
+</html>
