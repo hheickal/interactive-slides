@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { auth, initAuth, signInWithGoogle, signOut } from '../lib/auth'
-import { config } from '../lib/client'
+import { clientState, config } from '../lib/client'
 import { poll, initPoll } from '../lib/poll'
 
 onMounted(async () => {
@@ -10,20 +10,31 @@ onMounted(async () => {
 })
 
 /**
- * Only a room needs identity. A deck opened with no room code is either a
- * public practice deck or a signed-in student revising, and neither should be
- * blocked behind a sign-in wall.
+ * Any room needs identity: rooms have an owner, and answers are attributed.
+ * This deliberately does NOT depend on `courseId` — the course is created by
+ * an admin command that needs you signed in first, so gating on it would make
+ * the very first sign-in impossible.
  */
-const needsAuth = computed(() => poll.ready && poll.isLive && Boolean(config.courseId))
+const needsAuth = computed(() =>
+  poll.ready && poll.isLive && clientState.configured)
 
 const blocked = computed(() => {
   if (!needsAuth.value || !auth.ready) return null
   if (!auth.user) return 'signin'
-  // The presenter owns the course and is not expected on their own roster.
+  // No course yet: this deck is still being set up. Identity is enough.
+  if (!config.courseId) return null
+  // The presenter owns the course and is not on their own roster.
   if (auth.owner) return null
   if (auth.enrolled === false) return 'not-enrolled'
   return null
 })
+
+const base = import.meta.env.BASE_URL
+
+/** Solo mode: signing in is optional, and buys cross-device progress. */
+const showSoloSignIn = computed(() =>
+  poll.ready && !poll.isLive && clientState.configured
+  && Boolean(config.courseId) && auth.ready && !auth.user)
 </script>
 
 <template>
@@ -35,6 +46,9 @@ const blocked = computed(() => {
           Google account on your course roster.</p>
         <button class="primary" @click="signInWithGoogle">Continue with Google</button>
         <p v-if="auth.error" class="err">{{ auth.error }}</p>
+        <p class="fine">
+          <a :href="`${base}privacy/`" target="_blank" rel="noopener">What is recorded</a>
+        </p>
       </template>
 
       <template v-else>
@@ -46,6 +60,10 @@ const blocked = computed(() => {
       </template>
     </div>
   </div>
+
+  <button v-else-if="showSoloSignIn" class="solo" @click="signInWithGoogle">
+    Sign in to save progress
+  </button>
 </template>
 
 <style scoped>
@@ -70,6 +88,8 @@ const blocked = computed(() => {
 h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.6rem; }
 p { color: #898781; font-size: 0.95rem; margin: 0 0 1.25rem; line-height: 1.5; }
 .err { color: #d03b3b; margin-top: 0.75rem; }
+.fine { margin: 1rem 0 0; font-size: 0.8rem; }
+.fine a { color: #898781; }
 
 button {
   width: 100%;
@@ -81,4 +101,19 @@ button {
 }
 .primary { color: #fff; background: #2a78d6; border: 0; }
 .secondary { color: inherit; background: transparent; border: 1px solid #898781; }
+
+.solo {
+  position: fixed;
+  right: 0.6rem;
+  bottom: 0.6rem;
+  z-index: 100;
+  width: auto;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.72rem;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: #fff;
+  background: rgba(11, 11, 11, 0.55);
+  border: 0;
+  border-radius: 999px;
+}
 </style>
