@@ -45,7 +45,7 @@ layout: center
   id="q-collision"
   question="What is a hash collision?"
   :options="[
-    { text: 'Two different inputs producing the same digest', correct: true },
+    { text: 'Two different inputs producing the same digest' },
     { text: 'A digest longer than the input' },
     { text: 'A hash function that runs too slowly' },
     { text: 'Two hash functions with the same name' },
@@ -73,10 +73,25 @@ layout: center
   id="q-birthday"
   question="Roughly how many random digests before a 50% chance of a collision, for an n-bit hash?"
   :options="[
-    { text: 'About 2^(n/2)', correct: true },
+    { text: 'About 2^(n/2)' },
     { text: 'About 2^n' },
     { text: 'About n^2' },
     { text: 'About n / 2' },
+  ]"
+/>
+
+---
+layout: center
+---
+
+<Poll
+  id="q-confidence"
+  question="How well are you following so far?"
+  anonymous
+  :options="[
+    { text: 'Comfortable' },
+    { text: 'Mostly, with gaps' },
+    { text: 'Lost' },
   ]"
 />
 
@@ -92,6 +107,7 @@ and that square root is why 128-bit hashes are retired.
 <div class="pt-8 opacity-60 text-sm">
 
 Want to review alone? Open this deck without `?room=` — every poll
-gives instant feedback and remembers your answers.
+gives instant feedback, and a signed-in student picks up where they
+left off on any device.
 
 </div>

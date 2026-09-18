@@ -1,8 +1,14 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { reactive } from 'vue'
+import { config, db, initClient, maybeDb } from './client'
+import { auth, initAuth } from './auth'
 
 export interface PollOption {
   text: string
+  /**
+   * Inline answer key. Present only on ungraded practice decks — anything
+   * inline is visible in the page source. Graded decks leave it out and the
+   * key lives server-side; see docs/AUTH.md.
+   */
   correct?: boolean
 }
 
@@ -24,28 +30,36 @@ const params = typeof window !== 'undefined'
  *   ?room=CS101            presenter — you drive; the room mirrors your slide
  *   ?room=CS101&follow=1   follower  — a student's phone; follows your slide
  *                                      and answers polls inline
- *   (no room)              solo      — self-paced; answers stay in localStorage
+ *   (no room)              solo      — self-paced
  */
 export const roomCode = params.get('room')
 const wantsFollow = params.get('follow') === '1'
 
 export const poll = reactive({
-  /** Config has been loaded (or failed) — safe to render. */
   ready: false,
-  /** Backend configured at all — distinguishes "no backend" from "no room". */
   configured: false,
-  /** In a room, driving it. */
   isPresenter: false,
-  /** In a room, mirroring it. */
   isFollower: false,
-  /** In a room at all. */
   isLive: false,
 })
 
-let client: SupabaseClient | null = null
 let initPromise: Promise<void> | null = null
 
-/** Anonymous per-browser id — enforces one vote per question, not an identity. */
+export function initPoll(): Promise<void> {
+  if (initPromise) return initPromise
+  initPromise = (async () => {
+    await initClient()
+    await initAuth()
+    poll.configured = Boolean(maybeDb())
+    poll.isLive = Boolean(maybeDb() && roomCode)
+    poll.isFollower = poll.isLive && wantsFollow
+    poll.isPresenter = poll.isLive && !wantsFollow
+    poll.ready = true
+  })()
+  return initPromise
+}
+
+/** Anonymous per-browser id, still used for ungraded decks with no sign-in. */
 export function clientId(): string {
   try {
     let id = localStorage.getItem('poll:client')
@@ -60,84 +74,48 @@ export function clientId(): string {
   }
 }
 
-/**
- * Load config and open the Supabase client.
- *
- * Config is fetched rather than compiled in so that the deck and the join page
- * read the same file. `BASE_URL` resolves to `/` in dev and to the Pages
- * subpath in production, so this works in both without a second config.
- */
-export function initPoll(): Promise<void> {
-  if (initPromise) return initPromise
-
-  initPromise = (async () => {
-    try {
-      const res = await fetch(`${import.meta.env.BASE_URL}config.json`)
-      const cfg = await res.json()
-      if (cfg.supabaseUrl && cfg.supabaseAnonKey)
-        client = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey)
-    }
-    catch {
-      // No config, or it is malformed. Solo mode still works fully.
-    }
-    poll.configured = Boolean(client)
-    poll.isLive = Boolean(client && roomCode)
-    poll.isFollower = poll.isLive && wantsFollow
-    poll.isPresenter = poll.isLive && !wantsFollow
-    poll.ready = true
-  })()
-
-  return initPromise
-}
-
-/**
- * Open the room as soon as the deck loads.
- *
- * Students join before the first poll slide is ever shown, so the room row has
- * to exist from the moment you open the deck — not from the moment you reach a
- * question. `ignoreDuplicates` keeps this from wiping an active question if the
- * deck is reloaded mid-lecture.
- */
+/** Presenter: open the room, owned by you and bound to your course. */
 export async function ensureRoom() {
   await initPoll()
-  if (!poll.isPresenter) return
-  await client!.from('rooms').upsert(
-    { code: roomCode, updated_at: new Date().toISOString() },
-    { onConflict: 'code', ignoreDuplicates: true },
+  if (!poll.isPresenter || !auth.user) return
+  await db().from('rooms').upsert(
+    {
+      code: roomCode,
+      course_id: config.courseId,
+      owner: auth.user.id,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'code', ignoreDuplicates: false },
   )
 }
 
-/** Presenter: mirror the slide you are on into the room. */
 export async function publishSlide(slideNo: number, clicks: number) {
-  if (!poll.isPresenter) return
-  await client!.from('rooms').upsert({
-    code: roomCode,
+  if (!poll.isPresenter || !auth.user) return
+  await db().from('rooms').update({
     current_slide: slideNo,
     current_clicks: clicks,
     updated_at: new Date().toISOString(),
-  })
+  }).eq('code', roomCode)
 }
 
-/** Tell followers which question is on screen right now. */
 export async function activateQuestion(qid: string, question: string, options: PollOption[]) {
   await initPoll()
-  if (!poll.isPresenter) return
-  await client!.from('rooms').upsert({
-    code: roomCode,
+  if (!poll.isPresenter || !auth.user) return
+  await db().from('rooms').update({
     active_question: { qid, question, options: options.map(o => o.text) },
     reveal: false,
     updated_at: new Date().toISOString(),
-  })
+  }).eq('code', roomCode)
 }
 
 export async function setReveal(reveal: boolean) {
   if (!poll.isPresenter) return
-  await client!.from('rooms').update({ reveal }).eq('code', roomCode)
+  await db().from('rooms').update({ reveal }).eq('code', roomCode)
 }
 
 export async function fetchRoom(): Promise<RoomRow | null> {
   if (!poll.isLive) return null
-  const { data } = await client!
+  const { data } = await db()
     .from('rooms')
     .select('code, active_question, reveal, current_slide, current_clicks')
     .eq('code', roomCode)
@@ -145,10 +123,9 @@ export async function fetchRoom(): Promise<RoomRow | null> {
   return (data as RoomRow) ?? null
 }
 
-/** Follower: watch the room row for slide moves and reveals. */
 export function subscribeRoom(onChange: (row: RoomRow) => void) {
   if (!poll.isLive) return () => {}
-  const channel = client!
+  const channel = db()
     .channel(`room:${roomCode}`)
     .on(
       'postgres_changes',
@@ -156,22 +133,57 @@ export function subscribeRoom(onChange: (row: RoomRow) => void) {
       payload => onChange(payload.new as RoomRow),
     )
     .subscribe()
-  return () => { client!.removeChannel(channel) }
+  return () => { maybeDb()?.removeChannel(channel) }
 }
 
-/** Follower: cast a vote. Returns false only on a real failure. */
-export async function submitAnswer(qid: string, answer: string): Promise<boolean> {
-  if (!poll.isLive) return false
-  const { error } = await client!
-    .from('responses')
-    .insert({ room: roomCode, qid, answer, client_id: clientId() })
-  // 23505 = this browser already voted. Not something the student needs to see.
-  return !error || error.code === '23505'
+export interface SubmitResult {
+  ok: boolean
+  /** null when the question has no key — an opinion poll or confidence check. */
+  isCorrect: boolean | null
+  error?: string
+}
+
+/**
+ * Cast a vote.
+ *
+ * Goes through `submit_answer`, which checks the roster, records the answer,
+ * grades it against a key the browser never sees, and drops the student's id
+ * for anonymous polls. There is no insert policy on `responses`, so this
+ * function is the only way in.
+ */
+export async function submitAnswer(qid: string, answer: string): Promise<SubmitResult> {
+  await initPoll()
+
+  if (!config.courseId || !auth.user) {
+    // Ungraded deck, or nobody signed in: nothing server-side to talk to.
+    return { ok: false, isCorrect: null, error: 'not signed in' }
+  }
+
+  const { data, error } = await db().rpc('submit_answer', {
+    p_course: config.courseId,
+    p_room: roomCode,
+    p_qid: qid,
+    p_answer: answer,
+  })
+
+  if (error) {
+    const notEnrolled = error.code === '42501' || /roster/i.test(error.message)
+    return {
+      ok: false,
+      isCorrect: null,
+      error: notEnrolled
+        ? 'You are not on the roster for this course.'
+        : 'Could not send — check your connection and tap again.',
+    }
+  }
+
+  const row = data as { is_correct: boolean | null, duplicate?: boolean }
+  return { ok: true, isCorrect: row?.is_correct ?? null }
 }
 
 export async function fetchTallies(qid: string): Promise<Record<string, number>> {
   if (!poll.isLive) return {}
-  const { data } = await client!
+  const { data } = await db()
     .from('responses')
     .select('answer')
     .eq('room', roomCode)
@@ -183,16 +195,10 @@ export async function fetchTallies(qid: string): Promise<Record<string, number>>
   return tallies
 }
 
-/**
- * Live tally feed for one question — presenter only.
- *
- * Followers already hold one room subscription each, so a class of 100 sits at
- * ~101 concurrent connections, inside Supabase's 200-connection free tier. See
- * docs/SETUP.md § Scaling for what to do above roughly 180.
- */
+/** Presenter-only live tally feed. */
 export function subscribeTallies(qid: string, onChange: () => void) {
   if (!poll.isPresenter) return () => {}
-  const channel = client!
+  const channel = db()
     .channel(`tally:${roomCode}:${qid}`)
     .on(
       'postgres_changes',
@@ -202,10 +208,24 @@ export function subscribeTallies(qid: string, onChange: () => void) {
       },
     )
     .subscribe()
-  return () => { client!.removeChannel(channel) }
+  return () => { maybeDb()?.removeChannel(channel) }
 }
 
-/** Solo mode: the learner's own answers, per browser. */
+/** Self-paced answers, restored across devices for a signed-in student. */
+export async function fetchProgress(): Promise<Record<string, string>> {
+  if (!config.courseId || !auth.user) return {}
+  const { data } = await db()
+    .from('progress')
+    .select('qid, answer')
+    .eq('course_id', config.courseId)
+    .eq('user_id', auth.user.id)
+
+  const out: Record<string, string> = {}
+  for (const row of data ?? []) out[row.qid] = row.answer
+  return out
+}
+
+/** Fallback for decks with no backend: answers live in this browser only. */
 const SOLO_KEY = 'interactive-slides:solo'
 
 export function readSoloAnswer(qid: string): string | null {

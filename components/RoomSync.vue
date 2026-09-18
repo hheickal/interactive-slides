@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, watch } from 'vue'
 import { useNav } from '@slidev/client'
+import { auth } from '../lib/auth'
 import {
   ensureRoom,
   fetchRoom,
@@ -19,11 +20,20 @@ import {
 const { currentSlideNo, clicks, go } = useNav()
 
 let unsubscribe = () => {}
+let started = false
 /** Set while applying a remote move, so a follower's own nav doesn't echo. */
 let applyingRemote = false
 
 onMounted(async () => {
   await initPoll()
+  // Sign-in resolves asynchronously and may complete after an OAuth redirect,
+  // so wait for a user rather than deciding once at mount.
+  watch(() => auth.user, start, { immediate: true })
+})
+
+async function start() {
+  if (started || !auth.user) return
+  started = true
 
   if (poll.isPresenter) {
     await ensureRoom()
@@ -40,7 +50,7 @@ onMounted(async () => {
     if (room) await apply(room.current_slide, room.current_clicks)
     unsubscribe = subscribeRoom(row => apply(row.current_slide, row.current_clicks))
   }
-})
+}
 
 async function apply(slideNo: number, clickCount: number) {
   if (applyingRemote) return
@@ -59,7 +69,7 @@ onBeforeUnmount(() => unsubscribe())
 
 <template>
   <!-- A follower can still swipe; this says the deck will snap back. -->
-  <div v-if="poll.isFollower" class="following">following the presenter</div>
+  <div v-if="poll.isFollower && auth.user" class="following">following the presenter</div>
 </template>
 
 <style scoped>

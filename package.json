@@ -4,12 +4,13 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.12.0"
   },
   "scripts": {
     "dev": "slidev --open",
     "build": "slidev build --base /interactive-slides/",
-    "export": "slidev export"
+    "export": "slidev export",
+    "admin": "node scripts/admin.mjs"
   },
   "dependencies": {
     "@slidev/cli": "^51.0.0",

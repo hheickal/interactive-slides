@@ -1,5 +1,6 @@
 {
-  "_comment": "Poll backend config, read by both the deck and the join page. The anon key is PUBLIC BY DESIGN - Supabase ships it in every browser bundle, and Row Level Security (supabase/schema.sql) is the real boundary. NEVER put the service_role key here.",
+  "_comment": "Read by the deck and the join page. supabaseAnonKey is PUBLIC BY DESIGN - Supabase ships it in every browser bundle, and Row Level Security (supabase/schema.sql) is the real boundary. NEVER put the service_role key here; it belongs in .env. courseId is filled in by \"npm run admin course:create\".",
   "supabaseUrl": "https://gwqjyzycfqgnxqmmgpyx.supabase.co",
-  "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3cWp5enljZnFnbnhxbW1ncHl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3Mzg5OTksImV4cCI6MjEwNTMxNDk5OX0.RQqQAivGClSzEKXLJpVskBBTwDqQHG2ggjMsSbNkz1M"
+  "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3cWp5enljZnFnbnhxbW1ncHl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3Mzg5OTksImV4cCI6MjEwNTMxNDk5OX0.RQqQAivGClSzEKXLJpVskBBTwDqQHG2ggjMsSbNkz1M",
+  "courseId": ""
 }

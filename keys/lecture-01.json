@@ -1,0 +1,14 @@
+{
+  "q-collision": {
+    "question": "What is a hash collision?",
+    "correct": "Two different inputs producing the same digest"
+  },
+  "q-birthday": {
+    "question": "Roughly how many random digests before a 50% chance of a collision, for an n-bit hash?",
+    "correct": "About 2^(n/2)"
+  },
+  "q-confidence": {
+    "question": "How well are you following so far?",
+    "anonymous": true
+  }
+}
